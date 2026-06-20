@@ -1,59 +1,124 @@
-<p align="center">
-<img src="./images/logo.jpg" alt="spikezip_logo" width="250" align="center">
-</p>
+# DeepMIM + SDT V3: Master Thesis Project
 
-# Scaling Spike-driven Transformer with Efficient Spike Firing Approximation Training
+This repository contains my master thesis implementation and experiments based on Spike Driven Transformer V3 and DeepMIM style self supervised pretraining for spiking vision transformers.
 
-[Man Yao*](https://scholar.google.com/citations?user=eE4vvp0AAAAJ), [Xuerui Qiu*](https://scholar.google.com/citations?user=bMwW4e8AAAAJ&hl=zh-CN), [Tianxiang Hu](), [Jiakui Hu](https://github.com/jkhu29), [Yuhong Chou](https://scholar.google.com/citations?user=8CpWM4cAAAAJ&hl=zh-CN&oi=ao), [Keyu Tian](https://scholar.google.com/citations?user=6FdkbygAAAAJ&hl=zh-CN&oi=ao), [Jianxing Liao](), [Luziwei Leng](), [Bo Xu](), [Guoqi Li](https://scholar.google.com/citations?user=qCfE--MAAAAJ&)
+The original SDT V3 codebase is used as the foundation. My work extends this foundation with thesis specific model variants, self supervised pretraining components, attention mechanism experiments, linear probing, fine tuning pipelines, and downstream transfer scripts.
 
+The goal of this repository is to make my own contributions clearly visible for academic, technical, and portfolio purposes.
 
-*Equal contribution.
+## Project Context
 
-BICLab, Institute of Automation, Chinese Academy of Sciences
+Spiking Neural Networks aim to provide energy efficient alternatives to conventional artificial neural networks. Transformer based SNN architectures such as SDT V3 are promising, but training them effectively and evaluating learned representations remains challenging.
 
+This thesis investigates how masked image modeling and DeepMIM inspired pretraining can be combined with an SDT V3 style spiking transformer encoder. The project focuses on representation learning, attention mechanism variants, and downstream evaluation using fine tuning and linear probing.
 
-This repo is the official implementation of [Scaling Spike-driven Transformer with Efficient Spike Firing Approximation Training ](https://arxiv.org/pdf/2411.16061). It currently concludes codes and models for the following tasks:
-> **Base Model ImageNet From Scratch**: See [Train_Base.md](SDT_V3/Classification/Model_Base/Train_Base.md).\
-> **Large Model ImageNet Pretrain and Finetune**: See [Train_Large.md](SDT_V3/Classification/Model_Large/Train_Large.md).\
-> **Object Detection**: See [Detection.md](SDT_V3/Detection/Readme.md).\
-> **Semantic Segmentation**: See [Segementation.md](SDT_V3/Segmentation/Readme.md). \
-> **DVS**: See [DVS.md](SDT_V3/DVS/Hardvs/Readme.md).
+## My Contributions
 
+This thesis project extends the original SDT V3 repository with the following contributions:
 
-:rocket:  :rocket:  :rocket: **News**:
+1. DeepMIM based self supervised pretraining pipeline for SDT V3 style spiking transformer models.
+2. Modified SDT V3 encoder variants for masked image modeling and downstream classification.
+3. Alpha XNOR attention variant designed around binary spike based similarity.
+4. Quadratic spiking self attention variants used as reference attention mechanisms.
+5. Linear probing pipeline to evaluate representation quality without full fine tuning.
+6. Fine tuning scripts for downstream ImageNet classification experiments.
+7. Standardized experiment setup using 400 epochs for pretraining and 100 epochs for downstream evaluation.
+8. Experiment tracking scripts and run configurations for reproducible thesis runs.
+9. Segmentation and detection configuration updates for downstream transfer experiments.
 
-- **Dec. 19, 2023**: Release the code for training and testing.
+## Main Added or Modified Files
 
-## Abstract
-The ambition of brain-inspired Spiking Neural Networks (SNNs) is to become a low-power alternative to traditional Artificial Neural Networks (ANNs). This work addresses two major challenges in realizing this vision: the performance gap between SNNs and ANNs, and the high training costs of SNNs. We identify intrinsic flaws in spiking neurons caused by binary firing mechanisms and propose a Spike Firing Approximation (SFA) method using integer training and spike-driven inference. This optimizes the spike firing pattern of spiking neurons, enhancing efficient training, reducing power consumption, improving performance, enabling easier scaling, and better utilizing neuromorphic chips. We also develop an efficient spike-driven Transformer architecture and a spike-masked autoencoder to prevent performance degradation during SNN scaling. On ImageNet-1k, we achieve state-of-the-art top-1 accuracy of 78.5\%, 79.8\%, 84.0\%, and 86.2\% with models containing 10M, 19M, 83M, and 173M parameters, respectively. For instance, the 10M model outperforms the best existing SNN by 7.2\% on ImageNet, with training time acceleration and inference energy efficiency improved by 4.5x and 3.9x, respectively. We validate the effectiveness and efficiency of the proposed method across various tasks, including object detection, semantic segmentation, and neuromorphic vision tasks. This work enables SNNs to match ANN performance while maintaining the low-power advantage, marking a significant step towards SNNs as a general visual backbone.
+The most important thesis related files are located in:
 
-![avatar](./images/main.png)
+SDT_V3/Classification/Model_Large/
 
-## Results
-We address the performance and training consumption gap between SNNs and ANNs. A key contribution is identifying the mechanistic flaw of binary spike firing in spiking neurons. To overcome these limitations, we propose a Spike Firing Approximation (SFA) method. This method is based on integer training and spike-driven inference, aiming to optimize the spike firing pattern of spiking neurons. Our results demonstrate that optimization the spike firing pattern leads to comprehensive improvements in SNNs, including enhanced training efficiency, reduced power consumption, improved performance, easier scalability, and better utilization of neuromorphic chips. Additionally, we develop an efficient spike-driven Transformer architecture and a spike masked autoencoder to prevent performance degradation during SNN scaling. By addressing the training and performance challenges of large-scale SNNs, we pave the way for a new era in neuromorphic computing.
+Key files added or heavily modified during this thesis:
 
-![avatar](./images/fig.png)
+MAE_SDT_DeepMIM.py
+Updated_STDV3.py
+Updated_STDV3_2.py
+Updated_STDV3_alpha_xnor_gray_logpe_deepmim.py
+main_finetune_linear_probe.py
+main_finetune_linear_probe_jafar.py
+spikformer_quadratic.py
+spikformer_quadratic_lif.py
+util/samplers.py
+RUN_INDEX.md
 
+Important experiment scripts include:
 
-## Contact Information
+run_pretrain_update3_alpha_xnor_gray_logpe_deepmim_2gpu_400ep.sh
+run_pretrain_updated_stdv3_v2_2gpu_400ep.sh
+run_finetune_updated_stdv3_v1_ckpt390_2gpu_100ep.sh
+run_finetune_updated_stdv3_v2_ckpt390_2gpu_100ep.sh
+run_finetune_update3_ckpt390_original_2gpu_100ep.sh
+run_linear_probe_baseline_ckpt395_original_2gpu_100ep.sh
+run_linear_probe_update3_ckpt390_original_2gpu_100ep.sh
+run_linear_probe_updated_v1_ckpt390_quadratic_2gpu_100ep_task16.sh
+run_linear_probe_updated_v2_ckpt390_quadratic_lif_2gpu_100ep_task17.sh
 
-```
-@ARTICLE{10848017,
-  author={Yao, Man and Qiu, Xuerui and Hu, Tianxiang and Hu, Jiakui and Chou, Yuhong and Tian, Keyu and Liao, Jianxing and Leng, Luziwei and Xu, Bo and Li, Guoqi},
-  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, 
-  title={Scaling Spike-Driven Transformer With Efficient Spike Firing Approximation Training}, 
-  year={2025},
-  volume={47},
-  number={4},
-  pages={2973-2990},
-  doi={10.1109/TPAMI.2025.3530246}}
-```
+## Experiment Setup
 
-For help or issues using this git, please submit a GitHub issue.
+For consistency across thesis experiments, the following setup is used:
 
-For other communications related to this git, please contact `manyao@ia.ac.cn` and `qiuxuerui2024@ia.ac.cn`.
+Pretraining: 400 epochs
+Fine tuning: 100 epochs
+Linear probing: 100 epochs
+GPU setup: 2 GPUs
+Main dataset: ImageNet style classification setup
+Transfer tasks: Object detection and semantic segmentation configuration experiments
 
-## Acknowledgement
-The pretraining and finetuning of our project are based on [DeiT](https://github.com/facebookresearch/deit), [MCMAE](https://github.com/Alpha-VL/ConvMAE), [Spark](https://github.com/keyu-tian/SparK). and [MAE](https://github.com/facebookresearch/mae). The object detection and semantic segmentation parts are based on [MMDetection](https://github.com/open-mmlab/mmdetection) and [MMSegmentation](https://github.com/open-mmlab/mmsegmentation) respectively. Thanks for their wonderful work.
+Large datasets, checkpoints, model weights, training logs, and output folders are intentionally not included in this repository.
 
+## Repository Structure
 
+SDT_V3/
+Classification/
+Model_Base/
+Model_Large/
+Detection/
+Segmentation/
+DVS/
+
+The main thesis implementation is concentrated in SDT_V3/Classification/Model_Large/.
+
+## What Is Not Included
+
+The following files are excluded from the repository through .gitignore:
+
+datasets
+ImageNet, COCO, and ADE20K data
+checkpoints
+.pth, .pt, and .ckpt model weights
+training output folders
+work_dirs
+terminal logs
+backup files
+debug scratch files
+
+This keeps the repository lightweight and focused on the implementation.
+
+## Original Codebase and Acknowledgement
+
+This project is based on the official implementation of Scaling Spike Driven Transformer with Efficient Spike Firing Approximation Training.
+
+Original repository:
+https://github.com/biclab/spike-driven-transformer-v3
+
+The original codebase provides the SDT V3 foundation. My thesis work builds on top of this foundation by adding DeepMIM based pretraining, modified encoder variants, attention variants, linear probing, fine tuning scripts, and thesis specific experiment organization.
+
+The pretraining and fine tuning components of the original repository are based on DeiT, MCMAE, SparK, and MAE. The object detection and semantic segmentation parts are based on MMDetection and MMSegmentation.
+
+## Citation
+
+If you use the original SDT V3 implementation, please cite the original work:
+
+Yao, M., Qiu, X., Hu, T., Hu, J., Chou, Y., Tian, K., Liao, J., Leng, L., Xu, B., and Li, G. Scaling Spike Driven Transformer With Efficient Spike Firing Approximation Training. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2025.
+
+## Author
+
+Onur Balic
+M.Sc. Data Analytics
+University of Hildesheim
+
+This repository is maintained as part of my master thesis and AI/Data portfolio.
