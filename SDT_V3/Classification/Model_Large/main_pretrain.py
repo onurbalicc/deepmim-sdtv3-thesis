@@ -30,6 +30,8 @@ from timm.utils import *
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import MAE_SDT
+import MAE_SDT_DeepMIM
+import Updated_STDV3_alpha_xnor_gray_logpe_deepmim as Updated_STDV3
 from engine_pretrain import train_one_epoch
 import copy
 
@@ -163,7 +165,14 @@ def main(args):
 
 
     # define the model
-    model = MAE_SDT.__dict__[args.model]()
+    if args.model in Updated_STDV3.__dict__:
+        model = Updated_STDV3.__dict__[args.model]()
+    elif args.model in MAE_SDT.__dict__:
+        model = MAE_SDT.__dict__[args.model]()
+    elif args.model in MAE_SDT_DeepMIM.__dict__:
+        model = MAE_SDT_DeepMIM.__dict__[args.model]()
+    else:
+        raise ValueError(f"Unknown model: {args.model}")
 
     torchinfo.summary(model)
     model.to(device)
@@ -206,7 +215,7 @@ def main(args):
             log_writer=log_writer,
             args=args
         )
-        if args.output_dir and (epoch % 20 == 0 or epoch + 1 == args.epochs):
+        if args.output_dir and (epoch % 5 == 0 or epoch + 1 == args.epochs):
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)

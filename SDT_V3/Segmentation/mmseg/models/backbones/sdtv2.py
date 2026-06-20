@@ -604,10 +604,10 @@ class Spiking_vit_MetaFormer(BaseModule):
         x4 = x
         if self.decode_mode == 'snn':
             # return [x1, x2, x3, x4]  # T,B,C,N
-            return [x1.mean(0, keepdim=True),
-                    x2.mean(0, keepdim=True),
-                    x3.mean(0, keepdim=True),
-                    x4.mean(0, keepdim=True)]
+            return [x1.mean(0),
+                    x2.mean(0),
+                    x3.mean(0),
+                    x4.mean(0)]
         else:
             return [x1.flatten(0, 1), x2.flatten(0, 1), x3.flatten(0, 1), x4.flatten(0, 1)]  # T,B,C,N
 

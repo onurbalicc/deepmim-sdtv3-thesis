@@ -38,7 +38,7 @@ from util.datasets import build_dataset
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 from util.kd_loss import DistillationLoss
 
-import spikformer  # default original implementation; selected module is chosen at runtime via --spikformer_type
+import spikformer
 from engine_finetune import train_one_epoch, evaluate
 from timm.data import create_loader
 
@@ -75,13 +75,6 @@ def get_args_parser():
         help="Name of model to train",
     )
     parser.add_argument(
-        "--spikformer_type",
-        default="original",
-        choices=["original", "quadratic", "quadratic_lif"],
-        type=str,
-        help="Which Spikformer implementation to use: original, quadratic, or quadratic_lif.",
-    )
-    parser.add_argument(
         "--model_mode",
         default="ms",
         type=str,
@@ -98,7 +91,7 @@ def get_args_parser():
         help="Drop path rate (default: 0.1)",
     )
     parser.add_argument("--MODEL_EMA", default=True, type=int)
-    parser.add_argument("--MODEL_EMA_DECAY", default=0.99996, type=float)
+    parser.add_argument("--MODEL_EMA_DECAY", default=0.99996, type=int)
     # Optimizer parameters
     parser.add_argument(
         "--clip_grad",
@@ -406,24 +399,12 @@ def main(args):
         )
 
 
-    # Select which Spikformer implementation to use
-    if args.spikformer_type == "original":
-        import spikformer as spikformer_module
-    elif args.spikformer_type == "quadratic":
-        import spikformer_quadratic as spikformer_module
-    elif args.spikformer_type == "quadratic_lif":
-        import spikformer_quadratic_lif as spikformer_module
-    else:
-        raise ValueError(f"Unknown spikformer_type: {args.spikformer_type}")
-    print(f"Using Spikformer implementation: {args.spikformer_type}")
-
-    model = spikformer_module.__dict__[args.model](kd=args.kd, nb_classes=args.nb_classes)
+    model = spikformer.__dict__[args.model](kd=args.kd, nb_classes=args.nb_classes)
     model.T = args.time_steps
     model_ema = None
     if args.finetune:
         checkpoint = torch.load(args.finetune, map_location="cpu", weights_only=False)
         checkpoint_model = checkpoint["model"]
-        # Decoder ve MAE-specific key'leri filtrele
         checkpoint_model = {k: v for k, v in checkpoint_model.items()
                            if not k.startswith('decoder')
                            and k not in ('mask_token', 'pos_embed', 'decoder_pos_embed')}
@@ -431,6 +412,11 @@ def main(args):
         print("Missing keys:", msg.missing_keys)
         print("Unexpected keys:", msg.unexpected_keys)
 
+    # linear probe: freeze backbone, train only classification head
+    for name, p in model.named_parameters():
+        p.requires_grad = False
+        if name.startswith("head") or name.startswith("head_kd"):
+            p.requires_grad = True
 
     model.to(device)
     if args.MODEL_EMA:
@@ -463,9 +449,6 @@ def main(args):
             model, device_ids=[args.gpu], find_unused_parameters=True
         )
         model_without_ddp = model.module
-
-    if args.eval:
-        test_stats = evaluate(data_loader_val, model, device)
 
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(
@@ -515,6 +498,13 @@ def main(args):
         optimizer=optimizer,
         loss_scaler=loss_scaler,
     )
+
+    if args.eval:
+        test_stats = evaluate(data_loader_val, model, device)
+        print(
+            f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
+        )
+        exit(0)
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()

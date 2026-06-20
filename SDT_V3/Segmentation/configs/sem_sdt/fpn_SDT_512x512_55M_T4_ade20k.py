@@ -10,7 +10,7 @@ norm_cfg = dict(type='SyncBN', requires_grad=True)
 crop_size = (512, 512)
 data_preprocessor = dict(size=crop_size)
 # checkpoint_file = '/raid/ligq/lzx/spikeformerv2/seg/checkpoint/checkpoint-199.pth'
-checkpoint_file = '/raid/ligq/lzx/mmsegmentation/tools/work_dirs/fpn_SDT_512x512_512_ade20k/iter_160000.pth'
+checkpoint_file = '../Classification/Model_Large/06_clean_baseline_full_finetune_random_3gpu_50ep_100cls/checkpoint-49.pth'
 # checkpoint_file='/raid/ligq/lzx/ckpt/sdtv2/T4/ckpt-55M.pth'  # direct_train
 model = dict(
     data_preprocessor=data_preprocessor,
@@ -53,10 +53,10 @@ gpu_multiples = 1  # we use 8 gpu instead of 4 in mmsegmentation, so lr*2 and ma
 
 optim_wrapper = dict(
     _delete_=True,
-    type='AmpOptimWrapper',
-    dtype='float16',
+    type='OptimWrapper',
     optimizer=dict(
         type='AdamW', lr=0.001, betas=(0.9, 0.999),  weight_decay=0.05),  # default 0.001
+    clip_grad=dict(max_norm=1.0),
     paramwise_cfg=dict(
         custom_keys={
             # 'backbone': dict(lr_mult=),
@@ -83,7 +83,20 @@ lr_config = dict(warmup_iters=1500)
 # runtime settings
 
 train_cfg = dict(
-    type='IterBasedTrainLoop', max_iters=80000, val_interval=8000)
+    type='IterBasedTrainLoop', max_iters=160000, val_interval=8000)
 train_dataloader = dict(batch_size=5)
 val_dataloader = dict(batch_size=1)
 test_dataloader = val_dataloader
+
+default_hooks = dict(
+    checkpoint=dict(
+        type='CheckpointHook',
+        by_epoch=False,
+        interval=4000,
+        save_best='mIoU',
+        max_keep_ckpts=5),
+    logger=dict(type='LoggerHook', interval=50, log_metric_by_epoch=False),
+    param_scheduler=dict(type='ParamSchedulerHook'),
+    sampler_seed=dict(type='DistSamplerSeedHook'),
+    timer=dict(type='IterTimerHook'),
+    visualization=dict(type='SegVisualizationHook'))

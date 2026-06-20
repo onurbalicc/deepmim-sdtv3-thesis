@@ -4,7 +4,7 @@ _base_ = [
     '../_base_/schedules/schedule_1x.py', '../_base_/default_runtime.py'
 ]
 
-pretrained = "/lxh/spike-driven-transformer/mmdet3/work_dirs/t1_adamw_0.440_15m.pth"  #15M_coco_t1
+# pretrained = "/lxh/spike-driven-transformer/mmdet3/work_dirs/t1_adamw_0.440_15m.pth"  #15M_coco_t1
 
 # augmentation strategy originates from DETR / Sparse RCNN
 train_pipeline = [
@@ -63,8 +63,8 @@ model = dict(
         depths=8,
         sr_ratios=1,
         T=1,
-        init_cfg=dict(type='Pretrained', checkpoint=pretrained)
-        # init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
+#         init_cfg=dict(type='Pretrained', checkpoint=pretrained)
+        init_cfg=None,
     ),
     neck=dict(
         type='SpikeFPN',

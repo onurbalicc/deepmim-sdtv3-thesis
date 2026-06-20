@@ -1,6 +1,6 @@
 # dataset settings
 dataset_type = 'ADE20KDataset'
-data_root = '/raid/ligq/lzx/data/ADE20k/ADEChallengeData2016'
+data_root = '/media/homes/balic/datasets/ADE20K/ADEChallengeData2016'
 crop_size = (512, 512)
 train_pipeline = [
     dict(type='LoadImageFromFile'),

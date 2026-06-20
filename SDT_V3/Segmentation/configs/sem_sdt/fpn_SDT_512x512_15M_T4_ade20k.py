@@ -11,7 +11,7 @@ crop_size = (512, 512)
 # crop_size = (32, 32)
 data_preprocessor = dict(size=crop_size)
 # checkpoint_file = '/raid/ligq/lzx/spikeformerv2/seg/checkpoint/checkpoint-190.pth'
-checkpoint_file ='/raid/ligq/lzx/mmsegmentation/tools/work_dirs/fpn_SDT_512x512_384_ade20k/iter_160000.pth'
+checkpoint_file ='../Classification/Model_Large/output_full_finetune_3gpu/checkpoint-49.pth'
 # checkpoint_file = "/raid/ligq/lzx/ckpt/sdtv2/T4/checkpoint-15M.pth"
 
 model = dict(

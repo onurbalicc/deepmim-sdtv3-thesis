@@ -417,13 +417,15 @@ def main(args):
         raise ValueError(f"Unknown spikformer_type: {args.spikformer_type}")
     print(f"Using Spikformer implementation: {args.spikformer_type}")
 
-    model = spikformer_module.__dict__[args.model](kd=args.kd, nb_classes=args.nb_classes)
+    model = spikformer_module.__dict__[args.model](
+                                    kd=args.kd,
+                                    nb_classes=args.nb_classes,
+                                )
     model.T = args.time_steps
     model_ema = None
     if args.finetune:
         checkpoint = torch.load(args.finetune, map_location="cpu", weights_only=False)
         checkpoint_model = checkpoint["model"]
-        # Decoder ve MAE-specific key'leri filtrele
         checkpoint_model = {k: v for k, v in checkpoint_model.items()
                            if not k.startswith('decoder')
                            and k not in ('mask_token', 'pos_embed', 'decoder_pos_embed')}
@@ -431,6 +433,15 @@ def main(args):
         print("Missing keys:", msg.missing_keys)
         print("Unexpected keys:", msg.unexpected_keys)
 
+    # linear probe: freeze backbone, train only classification head
+    for name, p in model.named_parameters():
+        p.requires_grad = False
+        if name.startswith("head") or name.startswith("head_kd"):
+            p.requires_grad = True
+
+    for name, p in model.named_parameters():
+        if p.requires_grad:
+            print("trainable:", name)
 
     model.to(device)
     if args.MODEL_EMA:
@@ -464,9 +475,6 @@ def main(args):
         )
         model_without_ddp = model.module
 
-    if args.eval:
-        test_stats = evaluate(data_loader_val, model, device)
-
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(
         model_without_ddp,
@@ -475,7 +483,8 @@ def main(args):
         layer_decay=args.layer_decay,
     )
 
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
+    trainable_params = [p for p in model_without_ddp.parameters() if p.requires_grad]
+    optimizer = torch.optim.AdamW(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
     loss_scaler = NativeScaler()
 
     if mixup_fn is not None:
@@ -515,6 +524,13 @@ def main(args):
         optimizer=optimizer,
         loss_scaler=loss_scaler,
     )
+
+    if args.eval:
+        test_stats = evaluate(data_loader_val, model, device)
+        print(
+            f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
+        )
+        exit(0)
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()

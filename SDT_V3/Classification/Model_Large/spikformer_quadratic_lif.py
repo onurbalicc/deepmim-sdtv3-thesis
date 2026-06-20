@@ -1,6 +1,5 @@
 from functools import partial
-import torch
-import torch.nn as nn
+import math
 import torch
 import torch.nn as nn
 from spikingjelly.clock_driven import layer
@@ -11,11 +10,13 @@ from einops.layers.torch import Rearrange
 import torch.nn.functional as F
 from timm.models.vision_transformer import PatchEmbed, Block
 from util.pos_embed import get_2d_sincos_pos_embed
+from spikingjelly.clock_driven.neuron import MultiStepLIFNode
+from spikingjelly.clock_driven import surrogate
+from spikingjelly.clock_driven import functional
 
 import copy
 from torchvision import transforms
 import matplotlib.pyplot as plt
-import torch.nn as nn
 #timestep 1x4
 T=4
 
@@ -46,11 +47,42 @@ class Multispike(nn.Module):
         return self.spike.apply(inputs)/self.norm
 
 
+# ===========================================================================
+# Log-PE helper (paper-faithful, copied from the pretraining model file)
+# ===========================================================================
+def _build_log_pe_2d(H: int, W: int) -> torch.Tensor:
+    """
+    2D Log-PE on a grid. Distance between tokens (y1,x1) and (y2,x2) is L1.
+        R_{i,j} = ceil(log2((H+W-2)) - log2(|dy| + |dx| + 1)), clamped at >= 0
+    Returns FloatTensor of shape (H*W, H*W).
+    """
+    if H * W <= 1:
+        return torch.zeros(H * W, H * W, dtype=torch.float)
+
+    ys, xs = torch.meshgrid(
+        torch.arange(H, dtype=torch.float),
+        torch.arange(W, dtype=torch.float),
+        indexing="ij",
+    )
+    coords_y = ys.flatten().unsqueeze(0)   # (1, N)
+    coords_x = xs.flatten().unsqueeze(0)   # (1, N)
+
+    dy = (coords_y - coords_y.T).abs()     # (N, N)
+    dx = (coords_x - coords_x.T).abs()     # (N, N)
+    dist = dy + dx                          # L1
+
+    max_d = float(H + W - 2)
+    rpe = torch.ceil(
+        torch.log2(torch.tensor(max_d, dtype=torch.float)) - torch.log2(dist + 1.0)
+    )
+    return rpe.clamp(min=0.0)
+
+
 def MS_conv_unit(in_channels, out_channels,kernel_size=1,padding=0,groups=1):
     return nn.Sequential(
         layer.SeqToANNContainer(
            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, groups=groups,bias=True),
-           nn.BatchNorm2d(out_channels) 
+           nn.BatchNorm2d(out_channels)
         )
     )
 class MS_ConvBlock(nn.Module):
@@ -135,71 +167,98 @@ class RepConv2(nn.Module):
     def forward(self, x):
         return self.conv2(self.conv1(x))
 
-class MS_Attention_Conv_qkv_id(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
+
+# ===========================================================================
+# Quadratic attention + 2D Log-PE (matches the v2 pretraining attention block,
+# but Q/K use Multispike to stay close to the original spikformer.py behavior)
+# ===========================================================================
+class MS_Attention_Quadratic_LogPE(nn.Module):
+    """
+    Quadratic dot-product attention used in the v2 pretraining run, with
+    Q/K driven by MultiStepLIFNode (binary spikes), matching the pretraining
+    attention block (MS_Attention_LIF_Quadratic_LogPE) most closely:
+      - quadratic Q @ K^T
+      - 2D Log-PE bias added to the NxN attention map
+      - learnable scalar gate (pe_scale) on the PE bias, via softplus
+      - q_lif, k_lif = MultiStepLIFNode ; v_lif = Multispike
+    """
+
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
+                 attn_drop=0., proj_drop=0., sr_ratio=1, num_patches=196):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
         self.dim = dim
         self.num_heads = num_heads
         self.scale = 0.125
-        self.sr_ratio=sr_ratio
+        self.sr_ratio = sr_ratio
 
         self.head_lif = Multispike()
 
-        # track 1: split convs
-        self.q_conv = nn.Sequential(RepConv(dim,dim), nn.BatchNorm1d(dim))
-        self.k_conv = nn.Sequential(RepConv(dim,dim), nn.BatchNorm1d(dim))
-        self.v_conv = nn.Sequential(RepConv(dim,dim*sr_ratio), nn.BatchNorm1d(dim*sr_ratio))
+        self.q_conv = nn.Sequential(RepConv(dim, dim), nn.BatchNorm1d(dim))
+        self.k_conv = nn.Sequential(RepConv(dim, dim), nn.BatchNorm1d(dim))
+        self.v_conv = nn.Sequential(RepConv(dim, dim * sr_ratio), nn.BatchNorm1d(dim * sr_ratio))
 
-        # track 2: merge (prefer) NOTE: need `chunk` in forward
-        # self.qkv_conv = nn.Sequential(RepConv(dim,dim * 3), nn.BatchNorm2d(dim * 3))
-
-        self.q_lif = Multispike()
-
-        self.k_lif = Multispike()
-
+        # Binary Q, K via MultiStepLIFNode (matches pretraining attention block)
+        self.q_lif = MultiStepLIFNode(
+            tau=2.0, detach_reset=True, backend="torch",
+            surrogate_function=surrogate.ATan()
+        )
+        self.k_lif = MultiStepLIFNode(
+            tau=2.0, detach_reset=True, backend="torch",
+            surrogate_function=surrogate.ATan()
+        )
         self.v_lif = Multispike()
 
         self.attn_lif = Multispike()
 
-        self.proj_conv = nn.Sequential(RepConv(sr_ratio*dim,dim), nn.BatchNorm1d(dim))
+        self.proj_conv = nn.Sequential(RepConv(sr_ratio * dim, dim), nn.BatchNorm1d(dim))
+
+        # 2D Log-PE: derive grid side from num_patches
+        side = int(round(math.sqrt(num_patches)))
+        assert side * side == num_patches, (
+            f"num_patches={num_patches} must be a perfect square for 2D Log-PE"
+        )
+        log_pe = _build_log_pe_2d(side, side)
+        self.register_buffer("log_pe", log_pe.unsqueeze(0).unsqueeze(0).unsqueeze(0))  # (1,1,1,N,N)
+
+        self.pe_scale = nn.Parameter(torch.zeros(1))
 
     def forward(self, x):
-        T, B, C, N = x.shape
+        T_, B, C, N = x.shape
+        H = self.num_heads
+        head_dim = C // H
+        v_hdim = self.sr_ratio * C // H
+
+        # Reset only the stateful Q/K LIF neurons before use, so their
+        # membrane state from the previous forward is not carried into a new
+        # graph (fixes "Trying to backward through the graph a second time").
+        functional.reset_net(self.q_lif)
+        functional.reset_net(self.k_lif)
 
         x = self.head_lif(x)
+        x_flat = x.flatten(0, 1)
 
-        x_for_qkv = x.flatten(0, 1)
-        q_conv_out = self.q_conv(x_for_qkv).reshape(T, B, C, N)
+        q = self.q_lif(self.q_conv(x_flat).reshape(T_, B, C, N))
+        k = self.k_lif(self.k_conv(x_flat).reshape(T_, B, C, N))
+        v = self.v_lif(self.v_conv(x_flat).reshape(T_, B, self.sr_ratio * C, N))
 
-        q_conv_out = self.q_lif(q_conv_out)
+        q = q.transpose(-1, -2).reshape(T_, B, N, H, head_dim).permute(0, 1, 3, 2, 4)
+        k = k.transpose(-1, -2).reshape(T_, B, N, H, head_dim).permute(0, 1, 3, 2, 4)
+        v = v.transpose(-1, -2).reshape(T_, B, N, H, v_hdim).permute(0, 1, 3, 2, 4)
 
-        q = q_conv_out.transpose(-1, -2).reshape(T, B, N, self.num_heads, C // self.num_heads).permute(0, 1, 3, 2,
-                                                                                                       4)
+        # Quadratic dot-product attention
+        attn = torch.matmul(q, k.transpose(-2, -1))  # (T,B,H,N,N)
 
-        k_conv_out = self.k_conv(x_for_qkv).reshape(T, B, C, N)
+        # Add Log-PE bias and scale
+        pe_bias = F.softplus(self.pe_scale) * self.log_pe
+        attn = (attn + pe_bias) * self.scale
 
-        k_conv_out = self.k_lif(k_conv_out)
+        x_out = torch.matmul(attn, v)  # (T,B,H,N,Dv)
+        x_out = x_out.transpose(3, 4).reshape(T_, B, self.sr_ratio * C, N)
+        x_out = self.attn_lif(x_out)
 
-        k = k_conv_out.transpose(-1, -2).reshape(T, B, N, self.num_heads, C // self.num_heads).permute(0, 1, 3, 2,
-                                                                                                       4)
-
-        v_conv_out = self.v_conv(x_for_qkv).reshape(T, B, self.sr_ratio*C, N)
-
-        v_conv_out = self.v_lif(v_conv_out)
-
-        v = v_conv_out.transpose(-1, -2).reshape(T, B, N, self.num_heads, self.sr_ratio*C // self.num_heads).permute(0, 1, 3, 2,
-                                                                                                       4)
-
-        x = k.transpose(-2, -1) @ v
-        x = (q @ x) * self.scale
-        x = x.transpose(3, 4).reshape(T, B, self.sr_ratio*C, N)
-        x = self.attn_lif(x)
-
-        x = self.proj_conv(x.flatten(0, 1)).reshape(T, B, C, N)
-        return x
-
-
+        x_out = self.proj_conv(x_out.flatten(0, 1)).reshape(T_, B, C, N)
+        return x_out
 
 
 class MS_Block(nn.Module):
@@ -216,13 +275,14 @@ class MS_Block(nn.Module):
             drop_path=0.0,
             norm_layer=nn.LayerNorm,
             sr_ratio=1,init_values=1e-6,finetune=False,
+            num_patches=196,
     ):
         super().__init__()
         self.model=choice
         if self.model=="base":
             self.rep_conv=RepConv2(dim,dim) #if have param==83M
         self.lif = Multispike()
-        self.attn = MS_Attention_Conv_qkv_id(
+        self.attn = MS_Attention_Quadratic_LogPE(
             dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
@@ -230,6 +290,7 @@ class MS_Block(nn.Module):
             attn_drop=attn_drop,
             proj_drop=drop,
             sr_ratio=sr_ratio,
+            num_patches=num_patches,
         )
         self.finetune = finetune
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
@@ -317,6 +378,10 @@ class Spikformer(nn.Module):
         self.patch_size = patch_size
         self.embed_dim = embed_dim
         self.depths = depths
+        # number of transformer tokens (patches) at the deepest stage.
+        # Total downsampling factor across the 4 MS_DownSampling layers is 16,
+        # so N = (img_size_h // 16) * (img_size_w // 16).
+        self.num_patches = (img_size_h // 16) * (img_size_w // 16)
         dpr = [
             x.item() for x in torch.linspace(0, drop_path_rate, depths)
         ]  # stochastic depth decay rule
@@ -387,6 +452,7 @@ class Spikformer(nn.Module):
                     norm_layer=norm_layer,
                     sr_ratio=sr_ratios,
                     finetune=True,
+                    num_patches=self.num_patches,
                 )
                 for j in range(depths)
             ]
@@ -466,14 +532,14 @@ def spikformer12_512(**kwargs):
     model = Spikformer(
         T=1,
         choice="base",
-        img_size_h=32,
-        img_size_w=32,
+        img_size_h=224,
+        img_size_w=224,
         patch_size=16,
         embed_dim=[128,256,512],
         num_heads=8,
         mlp_ratios=4,
         in_channels=3,
-        num_classes=1000,
+        num_classes=100,
         qkv_bias=False,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
         depths=12,
@@ -483,14 +549,14 @@ def spikformer12_768(**kwargs):
     model = Spikformer(
         T=1,
         choice="large",
-        img_size_h=32,
-        img_size_w=32,
+        img_size_h=224,
+        img_size_w=224,
         patch_size=16,
         embed_dim=[196, 384, 768],
         num_heads=8,
         mlp_ratios=4,
         in_channels=3,
-        num_classes=1000,
+        num_classes=100,
         qkv_bias=False,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
         depths=12,
@@ -500,13 +566,14 @@ def spikformer12_768(**kwargs):
 
 
 
-
 if __name__ == "__main__":
-    # from encoder import SparseEncoder,nn.Conv2d
     import torchinfo
 
     model = spikformer12_512()
-
-
     print(f"number of params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-    
+
+    x = torch.randn(2, 3, 224, 224)
+    model.eval()
+    with torch.no_grad():
+        out = model(x)
+    print("forward OK, output shape:", out.shape if torch.is_tensor(out) else [o.shape for o in out])

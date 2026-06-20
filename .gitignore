@@ -1,3 +1,74 @@
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# System files
+.DS_Store
+
+# Environments
+.env
+.venv/
+venv/
+env/
+conda-env/
+
+# Datasets
+data/
+datasets/
+imagenet/
+ImageNet/
+COCO/
+coco/
+ADE20K/
+ade20k/
+
+# Training outputs
+output/
+outputs/
+runs/
+work_dirs/
+wandb/
+tensorboard/
+events.out.tfevents*
+terminal_output.txt
+*.log
+
+# Checkpoints and model weights
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.onnx
+checkpoint*/
+checkpoints/
+
+# Archives and large files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Backup files
+*.bak
+*.backup
+*.bak_*
+*.backup_*
+*.bak_before*
+*.backup_before*
+
+# Thesis experiment folders
+SDT_V3/Classification/Model_Large/[0-9][0-9]_*/
+SDT_V3/Detection/data/
+SDT_V3/Detection/work_dirs/
+
+# Local backup/debug scratch files
+SDT_V3/Classification/Model_Large/MAE_SDT_backup.py
+SDT_V3/Classification/Model_Large/*_debug.py
+SDT_V3/Classification/Model_Large/PY
+
+# Debug run scripts
+SDT_V3/Classification/Model_Large/*debug*.sh
