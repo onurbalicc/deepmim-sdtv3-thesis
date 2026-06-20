@@ -6,6 +6,13 @@ The original SDT V3 codebase is used as the foundation. My work extends this fou
 
 The goal of this repository is to make my own contributions clearly visible for academic, technical, and portfolio purposes.
 
+## Architecture Overview
+
+The following diagram summarizes the DeepMIM and SDT V3 encoder architecture used in this thesis project.
+
+![DeepMIM and SDT V3 Encoder Architecture](images/deepmim_sdtv3_architecture.png)
+
+
 ## Project Context
 
 Spiking Neural Networks aim to provide energy efficient alternatives to conventional artificial neural networks. Transformer based SNN architectures such as SDT V3 are promising, but training them effectively and evaluating learned representations remains challenging.
